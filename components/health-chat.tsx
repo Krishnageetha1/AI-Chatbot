@@ -6,12 +6,17 @@ import { DefaultChatTransport } from 'ai'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
-import { Send, Bot, User, Loader2 } from 'lucide-react'
+import { Send, Bot, User, Loader2, Image as ImageIcon, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 
 export function HealthChat() {
   const [input, setInput] = useState('')
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imageError, setImageError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
   
   const { messages, sendMessage, status } = useChat({
     transport: new DefaultChatTransport({ api: '/api/chat' }),
@@ -23,15 +28,85 @@ export function HealthChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  const handleImageSelect = async (file: File | null) => {
+    if (!file) return
+
+    // Validate file size (max 4MB)
+    if (file.size > 4 * 1024 * 1024) {
+      setImageError('Image size must be less than 4MB')
+      setSelectedImage(null)
+      setImageFile(null)
+      return
+    }
+
+    // Validate file type
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setImageError('Please upload a JPEG, PNG, or WebP image')
+      setSelectedImage(null)
+      setImageFile(null)
+      return
+    }
+
+    setImageError(null)
+    setImageFile(file)
+
+    // Read and display preview
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      setSelectedImage(e.target?.result as string)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.currentTarget.files?.[0]
+    handleImageSelect(file || null)
+  }
+
   useEffect(() => {
     scrollToBottom()
   }, [messages])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!input.trim() || isLoading) return
-    sendMessage({ text: input })
+    if ((!input.trim() && !selectedImage) || isLoading) return
+
+    const messageContent: Array<{ type: 'text' | 'image'; text?: string; image?: string }> = []
+
+    if (selectedImage) {
+      messageContent.push({
+        type: 'image',
+        image: selectedImage,
+      })
+    }
+
+    if (input.trim()) {
+      messageContent.push({
+        type: 'text',
+        text: input,
+      })
+    }
+
+    // If no text but there's an image, add a default message
+    if (messageContent.length === 1 && messageContent[0].type === 'image') {
+      messageContent.push({
+        type: 'text',
+        text: 'Please analyze this prescription image and provide medication instructions, dosages, frequency, and information about the condition.',
+      })
+    }
+
+    sendMessage({ 
+      text: input || 'Please analyze this prescription.',
+      parts: messageContent.map((part) => ({
+        type: part.type,
+        ...(part.type === 'text' ? { text: part.text } : { image: part.image }),
+      })),
+    })
+
     setInput('')
+    setSelectedImage(null)
+    setImageFile(null)
+    setImageError(null)
   }
 
   const suggestedQuestions = [
@@ -123,6 +198,15 @@ export function HealthChat() {
                       ) : (
                         <span key={index}>{part.text}</span>
                       )
+                    } else if (part.type === 'image' && 'image' in part && typeof (part as any).image === 'string') {
+                      return (
+                        <img
+                          key={index}
+                          src={(part as any).image}
+                          alt="Prescription"
+                          className="max-w-full rounded-lg mt-2 max-h-64 object-contain"
+                        />
+                      )
                     }
                     return null
                   })}
@@ -156,30 +240,116 @@ export function HealthChat() {
 
       {/* Input Form */}
       <div className="border-t bg-background p-4">
-        <form onSubmit={handleSubmit} className="flex gap-2 max-w-4xl mx-auto">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Describe your symptoms..."
-            disabled={isLoading}
-            className="flex-1 px-4 py-3 rounded-lg border bg-input text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          />
-          <Button 
-            type="submit" 
-            disabled={isLoading || !input.trim()}
-            size="lg"
-            className="px-4"
-          >
-            {isLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <Send className="w-5 h-5" />
-            )}
-            <span className="sr-only">Send message</span>
-          </Button>
+        {/* Image Preview */}
+        {selectedImage && (
+          <div className="mb-3 max-w-4xl mx-auto">
+            <div className="relative inline-block">
+              <img
+                src={selectedImage}
+                alt="Selected prescription"
+                className="max-h-32 rounded-lg border border-muted"
+              />
+              <button
+                onClick={() => {
+                  setSelectedImage(null)
+                  setImageFile(null)
+                  setImageError(null)
+                }}
+                className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:bg-destructive/90"
+                aria-label="Remove image"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Error message */}
+        {imageError && (
+          <div className="mb-3 max-w-4xl mx-auto text-sm text-destructive bg-destructive/10 p-2 rounded">
+            {imageError}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
+          <div className="flex gap-2 mb-2">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Describe your symptoms or ask about prescription..."
+              disabled={isLoading}
+              className="flex-1 px-4 py-3 rounded-lg border bg-input text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <Button 
+              type="submit" 
+              disabled={isLoading || (!input.trim() && !selectedImage)}
+              size="lg"
+              className="px-4"
+            >
+              {isLoading ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Send className="w-5 h-5" />
+              )}
+              <span className="sr-only">Send message</span>
+            </Button>
+          </div>
+
+          {/* Image Upload Buttons */}
+          <div className="flex gap-2 justify-between items-center">
+            <div className="flex gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleFileInputChange}
+                disabled={isLoading}
+                className="hidden"
+                aria-label="Upload prescription image from file"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading}
+                className="gap-2"
+              >
+                <ImageIcon className="w-4 h-4" />
+                Upload Image
+              </Button>
+
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileInputChange}
+                disabled={isLoading}
+                className="hidden"
+                aria-label="Capture prescription image with camera"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => cameraInputRef.current?.click()}
+                disabled={isLoading}
+                className="gap-2"
+              >
+                <ImageIcon className="w-4 h-4" />
+                Take Photo
+              </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              {selectedImage ? '✓ Image selected' : 'Max 4MB JPEG, PNG, WebP'}
+            </p>
+          </div>
         </form>
-        <p className="text-xs text-muted-foreground text-center mt-2">
+
+        <p className="text-xs text-muted-foreground text-center mt-3">
           This AI assistant is not a replacement for professional medical advice. 
           Always consult a healthcare provider for proper diagnosis.
         </p>
