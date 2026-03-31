@@ -312,7 +312,13 @@ export function HealthChat() {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => {
+                  // Reset input value to allow same file to be selected again
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = ''
+                    fileInputRef.current.click()
+                  }
+                }}
                 disabled={isLoading}
                 className="gap-2"
               >
@@ -329,12 +335,22 @@ export function HealthChat() {
                 disabled={isLoading}
                 className="hidden"
                 aria-label="Capture prescription image with camera"
+                onClick={(e) => {
+                  // Reset the input so the same camera can be opened multiple times
+                  (e.target as HTMLInputElement).value = ''
+                }}
               />
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => cameraInputRef.current?.click()}
+                onClick={() => {
+                  // Reset input value to allow same file to be selected again
+                  if (cameraInputRef.current) {
+                    cameraInputRef.current.value = ''
+                    cameraInputRef.current.click()
+                  }
+                }}
                 disabled={isLoading}
                 className="gap-2"
               >
